@@ -1,8 +1,8 @@
-# StatusSync
+# Gather Town Status Sync
 
 A small macOS menu bar app that keeps your status in sync between
 [Gather](https://gather.town) (V2 desktop app) and Microsoft Teams — without any
-Teams API, Graph permissions or admin consent.
+Teams API, Graph permissions or admin consent. The app itself is called `StatusSync`.
 
 - **Talking to someone in Gather** → Teams is set to *Do not disturb* with the
   status message "🍇 In einem Gather-Call".
@@ -20,18 +20,18 @@ Everything happens in the background; neither app is brought to the front.
 | Gather | Direct audio/video connection to another person | Gather's web app via the Chrome DevTools Protocol |
 
 A call only counts after 5 seconds and ends 15 seconds after it was last seen.
-What StatusSync changed is persisted, so it can still be undone after a crash.
+What Gather Town Status Sync changed is persisted, so it can still be undone after a crash.
 
 ## Requirements and limitations
 
 - macOS 14 or later, the new Teams app ("Microsoft Teams", `com.microsoft.teams2`)
   and the Gather V2 desktop app.
-- **Teams must use the German UI.** StatusSync finds the controls by their labels
+- **Teams must use the German UI.** Gather Town Status Sync finds the controls by their labels
   ("Nicht stören", "Status ändern", …). Other languages need the strings in
   `Teams.swift` adapted.
 - The Teams window must be open (it may be in the background or on another screen).
 - Teams UI automation can break with any Teams update.
-- **Gather is restarted with `--remote-debugging-port=9333`.** StatusSync does this
+- **Gather is restarted with `--remote-debugging-port=9333`.** Gather Town Status Sync does this
   automatically once when Gather runs without it and is not using the microphone.
   While the port is open, **any local program can control Gather**.
 
@@ -61,7 +61,7 @@ tccutil reset Accessibility mariokaiser.statussync.app
 A grape cluster after the Gather icon. A red dot means Teams is on *Do not disturb*
 because of a Gather conversation, a purple dot means Gather is *Busy* because of a
 Teams call, an orange dot means a problem (details in the menu). Crossed out means
-paused; pausing or quitting resets everything StatusSync changed.
+paused; pausing or quitting resets everything Gather Town Status Sync changed.
 
 ## License
 
