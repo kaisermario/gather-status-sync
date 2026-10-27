@@ -13,11 +13,38 @@ enum TeamsError: Error, CustomStringConvertible {
     }
 }
 
-/// Drives the (German) new-Teams UI through the Accessibility API and key events posted
-/// to the Teams process, so Teams never comes to the foreground.
+/// Labels of the new-Teams UI, taken from Teams' own de-de and en-us locale files.
+private struct Labels {
+    let detect: String // matches the profile button or the open profile menu
+    let profile: String
+    let changeStatus: String
+    let doNotDisturb: String
+    let resetStatus: String
+    let currentMessage: String
+    let setMessage: String
+    let messageField: String
+    let done: String
+    let deleteMessage: String
+    let profileMenu: String
+
+    static let all = [
+        Labels(detect: "^(Ihr Profil, Status|Profilmenü)", profile: "^Ihr Profil, Status",
+               changeStatus: "Status ändern", doNotDisturb: "Nicht stören", resetStatus: "^Status zurücksetzen",
+               currentMessage: "^Ihre aktuelle Statusnachricht", setMessage: "^Statusmeldung festlegen",
+               messageField: "^Geben Sie .@. ein", done: "^Fertig", deleteMessage: "^Statusmeldung löschen",
+               profileMenu: "^Profilmenü"),
+        Labels(detect: "^(Your profile, status|Profile menu)", profile: "^Your profile, status",
+               changeStatus: "change status", doNotDisturb: "Do not disturb", resetStatus: "^Reset status",
+               currentMessage: "^Your current status message", setMessage: "^Set status message",
+               messageField: "^Type @ to mention", done: "^Done", deleteMessage: "^Delete status message",
+               profileMenu: "^Profile menu"),
+    ]
+}
+
+/// Drives the new-Teams UI (German or English) through the Accessibility API and key events
+/// posted to the Teams process, so Teams never comes to the foreground.
 final class Teams {
     static let bundlePrefix = "com.microsoft.teams2"
-    static let doNotDisturb = "Nicht stören"
 
     private struct Node {
         let element: AXUIElement
@@ -31,40 +58,42 @@ final class Teams {
         NSRunningApplication.runningApplications(withBundleIdentifier: "com.microsoft.teams2").first?.processIdentifier
     }
 
-    /// The availability shown on the profile button, e.g. "Verfügbar" or "Nicht stören".
-    func availability() throws -> String {
+    /// Whether the profile button shows "Nicht stören" / "Do not disturb".
+    func isDoNotDisturb() throws -> Bool {
         let pid = try requirePID()
-        try closeMenu(pid)
-        let button = try waitFor("^Ihr Profil, Status", pid)
-        guard let range = button.label.range(of: #"Status ([^|]+)"#, options: .regularExpression) else {
+        let l = try labels(pid)
+        try closeMenu(pid, l)
+        let button = try waitFor(l.profile, pid)
+        guard let range = button.label.range(of: #"Status ([^|]+)"#, options: [.regularExpression, .caseInsensitive]) else {
             throw TeamsError.notFound("Status im Profil-Button")
         }
-        return String(button.label[range].dropFirst("Status ".count)).trimmingCharacters(in: .whitespaces)
+        return String(button.label[range].dropFirst("Status ".count)).hasPrefix(l.doNotDisturb)
     }
 
     /// Sets "Nicht stören" and, if no status message exists yet, `message`.
     /// Returns whether the message was set.
     func setDoNotDisturb(message: String) throws -> Bool {
         let pid = try requirePID()
-        try closeMenu(pid)
-        defer { try? closeMenu(pid) }
+        let l = try labels(pid)
+        try closeMenu(pid, l)
+        defer { try? closeMenu(pid, l) }
 
-        try press(waitFor("^Ihr Profil, Status", pid))
-        _ = try waitFor("Status ändern", pid)
-        let hasMessage = !find("^Ihre aktuelle Statusnachricht", pid).isEmpty
-        try press(waitFor("Status ändern", pid))
-        try press(waitFor("^\(Teams.doNotDisturb)$", pid))
-        _ = try waitFor("^\(Teams.doNotDisturb), Status ändern", pid)
+        try press(waitFor(l.profile, pid))
+        _ = try waitFor(l.changeStatus, pid)
+        let hasMessage = !find(l.currentMessage, pid).isEmpty
+        try press(waitFor(l.changeStatus, pid))
+        try press(waitFor("^\(l.doNotDisturb)$", pid))
+        _ = try waitFor("^\(l.doNotDisturb), \(l.changeStatus)", pid)
 
         guard !hasMessage else { return false }
-        try press(waitFor("^Statusmeldung festlegen", pid))
-        try press(waitFor("^Geben Sie .@. ein", pid))
+        try press(waitFor(l.setMessage, pid))
+        try press(waitFor(l.messageField, pid))
         usleep(300_000)
         Keys.selectAllAndDelete(pid)
         Keys.type(message, pid)
         usleep(300_000)
-        try press(waitFor("^Fertig", pid))
-        _ = try waitFor("^Ihre aktuelle Statusnachricht", pid)
+        try press(waitFor(l.done, pid))
+        _ = try waitFor(l.currentMessage, pid)
         return true
     }
 
@@ -72,18 +101,19 @@ final class Teams {
     /// message if it is still `message`.
     func reset(message: String?) throws {
         let pid = try requirePID()
-        try closeMenu(pid)
-        defer { try? closeMenu(pid) }
+        let l = try labels(pid)
+        try closeMenu(pid, l)
+        defer { try? closeMenu(pid, l) }
 
-        try press(waitFor("^Ihr Profil, Status", pid))
-        let statusItem = try waitFor("Status ändern", pid)
-        if statusItem.label.hasPrefix(Teams.doNotDisturb) {
+        try press(waitFor(l.profile, pid))
+        let statusItem = try waitFor(l.changeStatus, pid)
+        if statusItem.label.hasPrefix(l.doNotDisturb) {
             try press(statusItem)
-            try press(waitFor("^Status zurücksetzen", pid))
-            _ = try waitFor("^(?!\(Teams.doNotDisturb)).*, Status ändern", pid)
+            try press(waitFor(l.resetStatus, pid))
+            _ = try waitFor("^(?!\(l.doNotDisturb)).*, \(l.changeStatus)", pid)
         }
-        if let message, find("^Ihre aktuelle Statusnachricht: \(NSRegularExpression.escapedPattern(for: message))", pid).first != nil {
-            try press(waitFor("^Statusmeldung löschen", pid))
+        if let message, find("\(l.currentMessage): \(NSRegularExpression.escapedPattern(for: message))", pid).first != nil {
+            try press(waitFor(l.deleteMessage, pid))
             usleep(500_000)
         }
     }
@@ -100,17 +130,25 @@ final class Teams {
         return pid
     }
 
+    /// The UI language, recognised by the profile button (or the profile menu while it is open).
+    private func labels(_ pid: pid_t) throws -> Labels {
+        guard let labels = Labels.all.first(where: { !find($0.detect, pid).isEmpty }) else {
+            throw TeamsError.notFound("Profil-Button (Teams-Sprache Deutsch oder Englisch?)")
+        }
+        return labels
+    }
+
     /// Closes the profile menu (and the status message dialog) if open: focus an item, then Escape.
-    private func closeMenu(_ pid: pid_t) throws {
+    private func closeMenu(_ pid: pid_t, _ l: Labels) throws {
         for _ in 0..<3 {
-            guard !find("^Profilmenü", pid).isEmpty else { return }
+            guard !find(l.profileMenu, pid).isEmpty else { return }
             if let item = find(".", pid).first(where: { $0.role == "AXMenuItem" || $0.role == "AXButton" }) {
                 AXUIElementSetAttributeValue(item.element, "AXFocused" as CFString, kCFBooleanTrue)
             }
             Keys.escape(pid)
             usleep(500_000)
         }
-        if !find("^Profilmenü", pid).isEmpty { throw TeamsError.notFound("Profilmenü ließ sich nicht schließen") }
+        if !find(l.profileMenu, pid).isEmpty { throw TeamsError.notFound("Profilmenü ließ sich nicht schließen") }
     }
 
     private func press(_ node: Node) throws {

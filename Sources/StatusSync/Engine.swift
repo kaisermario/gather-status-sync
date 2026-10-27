@@ -140,7 +140,7 @@ actor Engine {
 
     private func applyTeams(_ problems: inout [String]) {
         do {
-            guard try teams.availability() != Teams.doNotDisturb else { return } // set by the user
+            guard try !teams.isDoNotDisturb() else { return } // set by the user
             let messageSet = try teams.setDoNotDisturb(message: Engine.teamsMessage)
             teamsApplied = TeamsApplied(message: messageSet ? Engine.teamsMessage : nil)
             log("Teams: Nicht stören gesetzt (Statusmeldung: \(messageSet))")

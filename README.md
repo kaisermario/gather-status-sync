@@ -26,9 +26,10 @@ What Gather Town Status Sync changed is persisted, so it can still be undone aft
 
 - macOS 14 or later, the new Teams app ("Microsoft Teams", `com.microsoft.teams2`)
   and the Gather V2 desktop app.
-- **Teams must use the German UI.** Gather Town Status Sync finds the controls by their labels
-  ("Nicht stören", "Status ändern", …). Other languages need the strings in
-  `Teams.swift` adapted.
+- **Teams must use the German or English UI.** Gather Town Status Sync finds the
+  controls by their labels ("Do not disturb", "change status", …). Other languages
+  need another entry in `Labels.all` in `Teams.swift`. The status messages it sets
+  are German in either case.
 - The Teams window must be open (it may be in the background or on another screen).
 - Teams UI automation can break with any Teams update.
 - **Gather is restarted with `--remote-debugging-port=9333`.** Gather Town Status Sync does this
