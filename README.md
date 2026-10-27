@@ -35,6 +35,19 @@ What Gather Town Status Sync changed is persisted, so it can still be undone aft
   automatically once when Gather runs without it and is not using the microphone.
   While the port is open, **any local program can control Gather**.
 
+## Download
+
+Get `StatusSync.dmg` from the
+[latest release](https://github.com/kaisermario/gather-status-sync/releases/latest)
+and drag the app to *Applications*. The app is not notarized, so macOS blocks the
+first start. Either right-click the app → *Open*, or run:
+
+```sh
+xattr -cr /Applications/StatusSync.app
+```
+
+Then continue with step 1 below.
+
 ## Build and install
 
 ```sh
