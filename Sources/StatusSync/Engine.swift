@@ -141,8 +141,12 @@ actor Engine {
     private func applyTeams(_ problems: inout [String]) {
         do {
             guard try !teams.isDoNotDisturb() else { return } // set by the user
-            let messageSet = try teams.setDoNotDisturb(message: Engine.teamsMessage)
-            teamsApplied = TeamsApplied(message: messageSet ? Engine.teamsMessage : nil)
+            try teams.setDoNotDisturb()
+            // Recorded right away so the status is reset even if the message fails;
+            // reset only deletes the message if it is still ours.
+            teamsApplied = TeamsApplied(message: Engine.teamsMessage)
+            let messageSet = try teams.setMessage(Engine.teamsMessage)
+            if !messageSet { teamsApplied = TeamsApplied(message: nil) }
             log("Teams: Nicht stören gesetzt (Statusmeldung: \(messageSet))")
         } catch {
             problems.append("\(error)")

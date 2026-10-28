@@ -44,7 +44,7 @@ final class Gather {
                      inConversation: value?["inConversation"] as? Bool ?? false)
     }
 
-    /// Sets "Busy" and, unless a status is already set, the custom status (auto-clears after 4 h).
+    /// Sets "Busy" and, unless a status is already set, the custom status.
     func setBusy(text: String, emoji: String) async throws -> Applied {
         let value = try await evaluate("""
             (async (text, emoji) => {
@@ -54,7 +54,7 @@ final class Gather {
               if (previous !== "Busy") await u.setAvailability({ availability: "Busy" });
               if (!u.activeCustomStatus) {
                 await u.setCustomStatus({ text, emoji,
-                  clearCondition: { type: "DateTime", clearAt: new Date(Date.now() + 4 * 3600e3) } });
+                  clearCondition: { type: "Never" } });
                 statusSet = true;
               }
               return { previous: previous === "Busy" ? null : previous, statusSet };

@@ -70,9 +70,21 @@ final class Teams {
         return String(button.label[range].dropFirst("Status ".count)).hasPrefix(l.doNotDisturb)
     }
 
-    /// Sets "Nicht stören" and, if no status message exists yet, `message`.
-    /// Returns whether the message was set.
-    func setDoNotDisturb(message: String) throws -> Bool {
+    /// Sets "Nicht stören".
+    func setDoNotDisturb() throws {
+        let pid = try requirePID()
+        let l = try labels(pid)
+        try closeMenu(pid, l)
+        defer { try? closeMenu(pid, l) }
+
+        try press(waitFor(l.profile, pid))
+        try press(waitFor(l.changeStatus, pid))
+        try press(waitFor("^\(l.doNotDisturb)$", pid))
+        _ = try waitFor("^\(l.doNotDisturb), \(l.changeStatus)", pid)
+    }
+
+    /// Sets `message` as status message unless there already is one. Returns whether it was set.
+    func setMessage(_ message: String) throws -> Bool {
         let pid = try requirePID()
         let l = try labels(pid)
         try closeMenu(pid, l)
@@ -80,18 +92,18 @@ final class Teams {
 
         try press(waitFor(l.profile, pid))
         _ = try waitFor(l.changeStatus, pid)
-        let hasMessage = !find(l.currentMessage, pid).isEmpty
-        try press(waitFor(l.changeStatus, pid))
-        try press(waitFor("^\(l.doNotDisturb)$", pid))
-        _ = try waitFor("^\(l.doNotDisturb), \(l.changeStatus)", pid)
-
-        guard !hasMessage else { return false }
+        guard find(l.currentMessage, pid).isEmpty else { return false }
         try press(waitFor(l.setMessage, pid))
-        try press(waitFor(l.messageField, pid))
-        usleep(300_000)
-        Keys.selectAllAndDelete(pid)
-        Keys.type(message, pid)
-        usleep(300_000)
+        var typed = false
+        for _ in 0..<2 where !typed {
+            try press(waitFor(l.messageField, pid))
+            usleep(300_000)
+            Keys.selectAllAndDelete(pid)
+            Keys.type(message, pid)
+            usleep(300_000)
+            typed = find(l.messageField, pid).contains { $0.label.contains(message) }
+        }
+        guard typed else { throw TeamsError.notFound("getippte Statusmeldung im Textfeld") }
         try press(waitFor(l.done, pid))
         _ = try waitFor(l.currentMessage, pid)
         return true
