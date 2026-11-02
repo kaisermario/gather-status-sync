@@ -30,6 +30,8 @@ actor Engine {
     private var gatherCall = CallTracker()
     private var teamsCall = CallTracker()
     private var restartedGatherPIDs = Set<pid_t>()
+    // Set once per Gather conversation instead of retrying every tick, which keeps clicking in Teams.
+    private var teamsSkipped: (headline: String, problem: String?)?
 
     // What we changed, persisted so a crash or restart can still undo it.
     private var teamsApplied: TeamsApplied? {
@@ -43,6 +45,7 @@ actor Engine {
 
     struct TeamsApplied: Codable {
         let message: String?
+        let statusSet: Bool? // nil in state saved by older versions, which always set the status
     }
 
     init(onUpdate: @escaping @Sendable (Snapshot) -> Void) {
@@ -108,8 +111,9 @@ actor Engine {
 
         // Gather conversation → Teams "Nicht stören". In a Teams call Teams shows "Im Anruf" anyway.
         if inGatherCall && !inTeamsCall {
-            if teamsApplied == nil { applyTeams(&problems) }
+            if teamsApplied == nil && teamsSkipped == nil { applyTeams() }
         } else {
+            teamsSkipped = nil
             await revertTeams(&problems)
         }
 
@@ -125,9 +129,13 @@ actor Engine {
         } ?? (gather.runningApp == nil ? "Gather: läuft nicht" : "Gather: nicht steuerbar")
         snapshot.teamsInfo = "Teams: \(teams.isRunning ? (teamsMicActive ? "im Call" : "kein Call") : "läuft nicht")"
 
-        if teamsApplied != nil {
+        if let teamsApplied {
             snapshot.mode = .gatherCall
-            snapshot.headline = "Gather-Gespräch → Teams: Nicht stören"
+            snapshot.headline = teamsApplied.statusSet == false
+                ? "Gather-Gespräch → Teams: Statusmeldung" : "Gather-Gespräch → Teams: Nicht stören"
+        } else if let teamsSkipped {
+            snapshot.headline = teamsSkipped.headline
+            if let problem = teamsSkipped.problem { problems.append(problem) }
         } else if gatherApplied != nil {
             snapshot.mode = .teamsCall
             snapshot.headline = "Teams-Call → Gather: Busy"
@@ -138,30 +146,36 @@ actor Engine {
         onUpdate(snapshot)
     }
 
-    private func applyTeams(_ problems: inout [String]) {
+    private func applyTeams() {
         do {
-            guard try !teams.isDoNotDisturb() else { return } // set by the user
-            try teams.setDoNotDisturb()
+            // "Nicht stören" or "Fokuszeit" set by the user stays; only the message is added.
+            let statusSet = try !teams.isDoNotDisturb()
+            if statusSet { try teams.setDoNotDisturb() }
             // Recorded right away so the status is reset even if the message fails;
             // reset only deletes the message if it is still ours.
-            teamsApplied = TeamsApplied(message: Engine.teamsMessage)
+            teamsApplied = TeamsApplied(message: Engine.teamsMessage, statusSet: statusSet)
             let messageSet = try teams.setMessage(Engine.teamsMessage)
-            if !messageSet { teamsApplied = TeamsApplied(message: nil) }
-            log("Teams: Nicht stören gesetzt (Statusmeldung: \(messageSet))")
+            if !messageSet {
+                teamsApplied = statusSet ? TeamsApplied(message: nil, statusSet: true) : nil
+                if !statusSet { teamsSkipped = ("Gather-Gespräch, Teams schon Nicht stören/Fokuszeit", nil) }
+            }
+            log("Teams: Nicht stören gesetzt: \(statusSet), Statusmeldung: \(messageSet)")
         } catch {
-            problems.append("\(error)")
+            log("Teams setzen fehlgeschlagen: \(error)")
+            teamsSkipped = ("Gather-Gespräch, Teams nicht geändert", "\(error)")
         }
     }
 
     private func revertTeams(_ problems: inout [String]) async {
         guard let applied = teamsApplied else { return }
         do {
-            try teams.reset(message: applied.message)
+            try teams.reset(message: applied.message, status: applied.statusSet ?? true)
             teamsApplied = nil
             log("Teams: zurückgesetzt")
-        } catch TeamsError.notRunning {
-            teamsApplied = nil
+        } catch TeamsError.notRunning, TeamsError.noWindow {
+            // Kept and retried: Teams may just be restarting, e.g. for an update.
         } catch {
+            log("Teams zurücksetzen fehlgeschlagen: \(error)")
             problems.append("\(error)")
         }
     }
@@ -210,8 +224,18 @@ actor Engine {
         }
     }
 
+    /// NSLog output does not end up in the unified log, so this also goes to ~/Library/Logs/StatusSync.log.
     private func log(_ message: String) {
         NSLog("StatusSync: %@", message)
+        let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/StatusSync.log")
+        let line = Data("\(Date().formatted(.iso8601)) \(message)\n".utf8)
+        if let handle = try? FileHandle(forWritingTo: url) {
+            handle.seekToEndOfFile()
+            handle.write(line)
+            try? handle.close()
+        } else {
+            try? line.write(to: url)
+        }
     }
 }
 

@@ -7,6 +7,8 @@ Teams API, Graph permissions or admin consent. The app itself is called `StatusS
 - **Talking to someone in Gather** → Teams is set to *Do not disturb* with the
   status message "🍇 In einem Gather-Call".
 - **In a Teams call** → Gather is set to *Busy* with the status "📞 Im Teams-Call".
+- If Teams is already on *Do not disturb* or *Focusing*, only the status message
+  is added.
 - When the call ends, both are reset — but only if you haven't changed the
   status yourself in the meantime.
 
@@ -69,6 +71,9 @@ is on, reset it and grant it again:
 ```sh
 tccutil reset Accessibility mariokaiser.statussync.app
 ```
+
+What the app changes in Teams, and what fails, is logged to
+`~/Library/Logs/StatusSync.log`.
 
 ## Menu bar icon
 

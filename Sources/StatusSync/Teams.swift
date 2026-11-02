@@ -19,6 +19,7 @@ private struct Labels {
     let profile: String
     let changeStatus: String
     let doNotDisturb: String
+    let focusing: String
     let resetStatus: String
     let currentMessage: String
     let setMessage: String
@@ -29,12 +30,14 @@ private struct Labels {
 
     static let all = [
         Labels(detect: "^(Ihr Profil, Status|Profilmenü)", profile: "^Ihr Profil, Status",
-               changeStatus: "Status ändern", doNotDisturb: "Nicht stören", resetStatus: "^Status zurücksetzen",
+               changeStatus: "Status ändern", doNotDisturb: "Nicht stören", focusing: "Fokuszeit",
+               resetStatus: "^Status zurücksetzen",
                currentMessage: "^Ihre aktuelle Statusnachricht", setMessage: "^Statusmeldung festlegen",
                messageField: "^Geben Sie .@. ein", done: "^Fertig", deleteMessage: "^Statusmeldung löschen",
                profileMenu: "^Profilmenü"),
         Labels(detect: "^(Your profile, status|Profile menu)", profile: "^Your profile, status",
-               changeStatus: "change status", doNotDisturb: "Do not disturb", resetStatus: "^Reset status",
+               changeStatus: "change status", doNotDisturb: "Do not disturb", focusing: "Focusing",
+               resetStatus: "^Reset status",
                currentMessage: "^Your current status message", setMessage: "^Set status message",
                messageField: "^Type @ to mention", done: "^Done", deleteMessage: "^Delete status message",
                profileMenu: "^Profile menu"),
@@ -58,7 +61,7 @@ final class Teams {
         NSRunningApplication.runningApplications(withBundleIdentifier: "com.microsoft.teams2").first?.processIdentifier
     }
 
-    /// Whether the profile button shows "Nicht stören" / "Do not disturb".
+    /// Whether the profile button shows "Nicht stören" or "Fokuszeit" (which hides "Nicht stören").
     func isDoNotDisturb() throws -> Bool {
         let pid = try requirePID()
         let l = try labels(pid)
@@ -67,7 +70,8 @@ final class Teams {
         guard let range = button.label.range(of: #"Status ([^|]+)"#, options: [.regularExpression, .caseInsensitive]) else {
             throw TeamsError.notFound("Status im Profil-Button")
         }
-        return String(button.label[range].dropFirst("Status ".count)).hasPrefix(l.doNotDisturb)
+        let status = String(button.label[range].dropFirst("Status ".count))
+        return status.hasPrefix(l.doNotDisturb) || status.hasPrefix(l.focusing)
     }
 
     /// Sets "Nicht stören".
@@ -109,24 +113,26 @@ final class Teams {
         return true
     }
 
-    /// Resets the status to automatic if it is still "Nicht stören", and deletes the status
+    /// Resets the status to automatic if `status` and it is still "Nicht stören", and deletes the status
     /// message if it is still `message`.
-    func reset(message: String?) throws {
+    func reset(message: String?, status: Bool) throws {
         let pid = try requirePID()
         let l = try labels(pid)
         try closeMenu(pid, l)
         defer { try? closeMenu(pid, l) }
 
         try press(waitFor(l.profile, pid))
+        // The message first: once the status submenu was used, the message is no longer shown.
+        _ = try waitFor(l.changeStatus, pid)
+        if let message, find("\(l.currentMessage): \(NSRegularExpression.escapedPattern(for: message))", pid).first != nil {
+            try press(waitFor(l.deleteMessage, pid))
+            _ = try waitFor(l.setMessage, pid)
+        }
         let statusItem = try waitFor(l.changeStatus, pid)
-        if statusItem.label.hasPrefix(l.doNotDisturb) {
+        if status && statusItem.label.hasPrefix(l.doNotDisturb) {
             try press(statusItem)
             try press(waitFor(l.resetStatus, pid))
             _ = try waitFor("^(?!\(l.doNotDisturb)).*, \(l.changeStatus)", pid)
-        }
-        if let message, find("\(l.currentMessage): \(NSRegularExpression.escapedPattern(for: message))", pid).first != nil {
-            try press(waitFor(l.deleteMessage, pid))
-            usleep(500_000)
         }
     }
 
@@ -151,9 +157,15 @@ final class Teams {
     }
 
     /// Closes the profile menu (and the status message dialog) if open: focus an item, then Escape.
+    /// During a call Teams has a separate call window that gets the key events, so the window
+    /// with the menu is made main for the Escape and the previous main window restored after.
     private func closeMenu(_ pid: pid_t, _ l: Labels) throws {
+        let windows = attribute(AXUIElementCreateApplication(pid), "AXWindows") as? [AXUIElement] ?? []
+        let mainWindow = windows.first { attribute($0, "AXMain") as? Bool == true }
+        defer { if let mainWindow { AXUIElementSetAttributeValue(mainWindow, "AXMain" as CFString, kCFBooleanTrue) } }
         for _ in 0..<3 {
-            guard !find(l.profileMenu, pid).isEmpty else { return }
+            guard let menuWindow = windows.first(where: { !find(l.profileMenu, pid, in: [$0]).isEmpty }) else { return }
+            AXUIElementSetAttributeValue(menuWindow, "AXMain" as CFString, kCFBooleanTrue)
             if let item = find(".", pid).first(where: { $0.role == "AXMenuItem" || $0.role == "AXButton" }) {
                 AXUIElementSetAttributeValue(item.element, "AXFocused" as CFString, kCFBooleanTrue)
             }
@@ -178,7 +190,7 @@ final class Teams {
         throw TeamsError.notFound(pattern)
     }
 
-    private func find(_ pattern: String, _ pid: pid_t) -> [Node] {
+    private func find(_ pattern: String, _ pid: pid_t, in windows: [AXUIElement]? = nil) -> [Node] {
         guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return [] }
         let app = AXUIElementCreateApplication(pid)
         var hits: [Node] = []
@@ -199,7 +211,7 @@ final class Teams {
             }
         }
 
-        for window in attribute(app, "AXWindows") as? [AXUIElement] ?? [] {
+        for window in windows ?? attribute(app, "AXWindows") as? [AXUIElement] ?? [] {
             walk(window, depth: 0)
         }
         return hits
