@@ -73,7 +73,7 @@ tccutil reset Accessibility mariokaiser.statussync.app
 ```
 
 What the app changes in Teams, and what fails, is logged to
-`~/Library/Logs/StatusSync.log`.
+`~/Library/Logs/StatusSync.log`. The latest entries are also shown in the menu under *Log*.
 
 ## Menu bar icon
 

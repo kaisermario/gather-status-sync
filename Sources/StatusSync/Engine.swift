@@ -227,7 +227,7 @@ actor Engine {
     /// NSLog output does not end up in the unified log, so this also goes to ~/Library/Logs/StatusSync.log.
     private func log(_ message: String) {
         NSLog("StatusSync: %@", message)
-        let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/StatusSync.log")
+        let url = logFileURL
         let line = Data("\(Date().formatted(.iso8601)) \(message)\n".utf8)
         if let handle = try? FileHandle(forWritingTo: url) {
             handle.seekToEndOfFile()
@@ -238,6 +238,8 @@ actor Engine {
         }
     }
 }
+
+let logFileURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/StatusSync.log")
 
 /// Debounces a raw "is in a call" signal.
 struct CallTracker {

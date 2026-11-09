@@ -1,7 +1,7 @@
 import AppKit
 import ServiceManagement
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private var snapshot = Snapshot()
     private var paused = false
@@ -47,12 +47,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(item(paused ? "Fortsetzen" : "Pausieren", #selector(togglePause)))
         menu.addItem(item("Gather mit Debug-Port neu starten", #selector(restartGather)))
+        let log = NSMenuItem(title: "Log", action: nil, keyEquivalent: "")
+        log.submenu = NSMenu()
+        log.submenu?.delegate = self
+        menu.addItem(log)
         let login = item("Beim Login starten", #selector(toggleLogin))
         login.state = SMAppService.mainApp.status == .enabled ? .on : .off
         menu.addItem(login)
         menu.addItem(.separator())
         menu.addItem(item("StatusSync beenden", #selector(quit)))
         return menu
+    }
+
+    /// The log submenu is filled when it opens, so it always shows the latest entries.
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.removeAllItems()
+        let lines = ((try? String(contentsOf: logFileURL, encoding: .utf8)) ?? "")
+            .split(separator: "\n").suffix(25).reversed()
+        if lines.isEmpty { menu.addItem(info("Noch keine Einträge")) }
+        for line in lines { menu.addItem(info(logEntry(String(line)))) }
+        menu.addItem(.separator())
+        menu.addItem(item("Log-Datei öffnen", #selector(openLog)))
+    }
+
+    /// "2026-11-09T13:02:24Z Teams: zurückgesetzt" → "09.11. 14:02:24  Teams: zurückgesetzt" (local time).
+    private func logEntry(_ line: String) -> String {
+        let parts = line.split(separator: " ", maxSplits: 1)
+        guard parts.count == 2, let date = try? Date(String(parts[0]), strategy: .iso8601) else { return line }
+        return "\(date.formatted(.dateTime.day(.twoDigits).month(.twoDigits).hour().minute().second()))  \(parts[1])"
+    }
+
+    @objc private func openLog() {
+        NSWorkspace.shared.open(logFileURL)
     }
 
     private func info(_ title: String) -> NSMenuItem {
