@@ -150,10 +150,10 @@ actor Engine {
         do {
             // "Nicht stören" or "Fokuszeit" set by the user stays; only the message is added.
             let statusSet = try !teams.isDoNotDisturb()
-            if statusSet { try teams.setDoNotDisturb() }
-            // Recorded right away so the status is reset even if the message fails;
-            // reset only deletes the message if it is still ours.
+            // Recorded before any change so the status is reset even if a step fails;
+            // reset only touches "Nicht stören" and a message that is still ours.
             teamsApplied = TeamsApplied(message: Engine.teamsMessage, statusSet: statusSet)
+            if statusSet { try teams.setDoNotDisturb() }
             let messageSet = try teams.setMessage(Engine.teamsMessage)
             if !messageSet {
                 teamsApplied = statusSet ? TeamsApplied(message: nil, statusSet: true) : nil

@@ -84,7 +84,8 @@ final class Teams {
         try press(waitFor(l.profile, pid))
         try press(waitFor(l.changeStatus, pid))
         try press(waitFor("^\(l.doNotDisturb)$", pid))
-        _ = try waitFor("^\(l.doNotDisturb), \(l.changeStatus)", pid)
+        // The menu item, or the profile button if Teams closed the menu after the click.
+        _ = try waitFor("^\(l.doNotDisturb), \(l.changeStatus)|\(l.profile) \(l.doNotDisturb)", pid)
     }
 
     /// Sets `message` as status message unless there already is one. Returns whether it was set.
