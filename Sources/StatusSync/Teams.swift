@@ -2,13 +2,14 @@ import AppKit
 import ApplicationServices
 
 enum TeamsError: Error, CustomStringConvertible {
-    case notRunning, noWindow, notFound(String)
+    case notRunning, noWindow, notFound(String), stillDoNotDisturb(String)
 
     var description: String {
         switch self {
         case .notRunning: return "Teams läuft nicht"
         case .noWindow: return "Teams-Fenster nicht gefunden"
         case .notFound(let what): return "Teams-Element nicht gefunden: \(what)"
+        case .stillDoNotDisturb(let status): return "Teams steht nach dem Zurücksetzen noch auf \(status)"
         }
     }
 }
@@ -66,12 +67,17 @@ final class Teams {
         let pid = try requirePID()
         let l = try labels(pid)
         try closeMenu(pid, l)
+        let status = try profileStatus(pid, l)
+        return status.hasPrefix(l.doNotDisturb) || status.hasPrefix(l.focusing)
+    }
+
+    /// The status the profile button shows, e.g. "Nicht stören". The menu must be closed.
+    private func profileStatus(_ pid: pid_t, _ l: Labels) throws -> String {
         let button = try waitFor(l.profile, pid)
         guard let range = button.label.range(of: #"Status ([^|]+)"#, options: [.regularExpression, .caseInsensitive]) else {
             throw TeamsError.notFound("Status im Profil-Button")
         }
-        let status = String(button.label[range].dropFirst("Status ".count))
-        return status.hasPrefix(l.doNotDisturb) || status.hasPrefix(l.focusing)
+        return String(button.label[range].dropFirst("Status ".count))
     }
 
     /// Sets "Nicht stören".
@@ -115,25 +121,40 @@ final class Teams {
     }
 
     /// Resets the status to automatic if `status` and it is still "Nicht stören", and deletes the status
-    /// message if it is still `message`.
+    /// message if it is still `message`. The status is read from the profile button (the status menu item
+    /// did not always show "Nicht stören") and checked again afterwards, so a reset that did not take throws
+    /// and is retried instead of leaving "Nicht stören" behind.
     func reset(message: String?, status: Bool) throws {
         let pid = try requirePID()
         let l = try labels(pid)
         try closeMenu(pid, l)
-        defer { try? closeMenu(pid, l) }
+        let resetStatus = try status && profileStatus(pid, l).hasPrefix(l.doNotDisturb)
 
-        try press(waitFor(l.profile, pid))
-        // The message first: once the status submenu was used, the message is no longer shown.
-        _ = try waitFor(l.changeStatus, pid)
-        if let message, find("\(l.currentMessage): \(NSRegularExpression.escapedPattern(for: message))", pid).first != nil {
-            try press(waitFor(l.deleteMessage, pid))
-            _ = try waitFor(l.setMessage, pid)
+        do {
+            defer { try? closeMenu(pid, l) }
+            try press(waitFor(l.profile, pid))
+            // The message first: once the status submenu was used, the message is no longer shown.
+            _ = try waitFor(l.changeStatus, pid)
+            if let message, find("\(l.currentMessage): \(NSRegularExpression.escapedPattern(for: message))", pid).first != nil {
+                try press(waitFor(l.deleteMessage, pid))
+                _ = try waitFor(l.setMessage, pid)
+            }
+            if resetStatus {
+                try press(waitFor(l.changeStatus, pid))
+                try press(waitFor(l.resetStatus, pid))
+            }
         }
-        let statusItem = try waitFor(l.changeStatus, pid)
-        if status && statusItem.label.hasPrefix(l.doNotDisturb) {
-            try press(statusItem)
-            try press(waitFor(l.resetStatus, pid))
-            _ = try waitFor("^(?!\(l.doNotDisturb)).*, \(l.changeStatus)", pid)
+        guard resetStatus else { return }
+
+        try closeMenu(pid, l)
+        let deadline = Date().addingTimeInterval(5)
+        var current = try profileStatus(pid, l)
+        while current.hasPrefix(l.doNotDisturb) && Date() < deadline {
+            usleep(250_000)
+            current = try profileStatus(pid, l)
+        }
+        if current.hasPrefix(l.doNotDisturb) {
+            throw TeamsError.stillDoNotDisturb(current)
         }
     }
 
