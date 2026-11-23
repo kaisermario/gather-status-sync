@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// What the menu bar shows.
@@ -32,6 +33,8 @@ actor Engine {
     private var restartedGatherPIDs = Set<pid_t>()
     // Set once per Gather conversation instead of retrying every tick, which keeps clicking in Teams.
     private var teamsSkipped: (headline: String, problem: String?)?
+    // While the Mac is locked the Teams UI cannot be reached, so the reset waits for the unlock.
+    private var teamsResetWaitsForUnlock = false
 
     // What we changed, persisted so a crash or restart can still undo it.
     private var teamsApplied: TeamsApplied? {
@@ -168,6 +171,12 @@ actor Engine {
 
     private func revertTeams(_ problems: inout [String]) async {
         guard let applied = teamsApplied else { return }
+        if Engine.isScreenLocked {
+            if !teamsResetWaitsForUnlock { log("Mac gesperrt, Teams wird nach dem Entsperren zurückgesetzt") }
+            teamsResetWaitsForUnlock = true
+            return
+        }
+        teamsResetWaitsForUnlock = false
         do {
             try teams.reset(message: applied.message, status: applied.statusSet ?? true)
             teamsApplied = nil
@@ -210,6 +219,10 @@ actor Engine {
         log("Gather ohne Debug-Port gefunden, starte neu")
         await gather.restartWithDebugPort()
         if let restarted = gather.runningApp { restartedGatherPIDs.insert(restarted.processIdentifier) }
+    }
+
+    private static var isScreenLocked: Bool {
+        (CGSessionCopyCurrentDictionary() as? [String: Any])?["CGSSessionScreenIsLocked"] as? Bool ?? false
     }
 
     private func decode<T: Decodable>(_ key: String) -> T? {

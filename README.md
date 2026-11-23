@@ -34,6 +34,7 @@ What Gather Town Status Sync changed is persisted, so it can still be undone aft
   are German in either case.
 - The Teams window must be open (it may be in the background or on another screen).
 - Teams UI automation can break with any Teams update.
+- While the Mac is locked, Teams cannot be changed; a pending reset follows right after unlocking.
 - **Gather is restarted with `--remote-debugging-port=9333`.** Gather Town Status Sync does this
   automatically once when Gather runs without it and is not using the microphone.
   While the port is open, **any local program can control Gather**.
